@@ -149,6 +149,16 @@ Respond ONLY with a valid JSON object. Do not include any text before or after t
                     # Debug: Show first 200 chars of response
                     if len(response_text) > 0:
                         print(f"📝 Response preview: {response_text[:200]}...")
+                        
+                        # Clean response - remove markdown formatting
+                        if response_text.startswith('json'):
+                            response_text = response_text[4:].strip()
+                        if response_text.startswith('```json'):
+                            response_text = response_text[7:].strip()
+                        if response_text.endswith('```'):
+                            response_text = response_text[:-3].strip()
+                        
+                        print(f"📝 Cleaned response length: {len(response_text)} chars")
                     else:
                         print("📝 Empty response from Gemini Pro")
                         continue
