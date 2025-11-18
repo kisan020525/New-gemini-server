@@ -10,10 +10,17 @@ class BinanceClient:
     """Enhanced client for multi-source crypto data with Supabase 4H storage"""
     
     def __init__(self):
-        # Supabase for 4H candles storage
+        # Supabase for 4H candles storage (use hardcoded keys for this specific database)
         self.supabase_url = "https://smylsjwodvlvqybemshk.supabase.co"
         self.supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNteWxzandvZHZsdnF5YmVtc2hrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNjk5MjAsImV4cCI6MjA3ODk0NTkyMH0.iKJ0NbFeGgGzVKQIBTntfx9TNznej3ffrL5-i1TUbbE"
-        self.supabase = create_client(self.supabase_url, self.supabase_key)
+        
+        # Initialize Supabase client
+        try:
+            self.supabase = create_client(self.supabase_url, self.supabase_key)
+            print("✅ Supabase client initialized for 4H candles")
+        except Exception as e:
+            print(f"❌ Supabase initialization error: {e}")
+            self.supabase = None
         
         self.session = None
         self.last_4h_update = None
@@ -38,6 +45,10 @@ class BinanceClient:
     
     async def get_4h_from_supabase(self, limit: int) -> List[Dict]:
         """Fetch 4H candles from Supabase storage"""
+        if not self.supabase:
+            print("❌ Supabase not available, trying Coinbase for 4H...")
+            return await self.get_coinbase_candles('4h', limit)
+        
         try:
             print(f"📊 Fetching {limit} 4H candles from Supabase...")
             
@@ -47,7 +58,7 @@ class BinanceClient:
                 'symbol', 'BTCUSD'
             ).order('timestamp', desc=True).limit(limit).execute()
             
-            if result.data:
+            if result.data and len(result.data) > 0:
                 # Convert to our format and reverse (oldest first)
                 candles = []
                 for row in reversed(result.data):
@@ -68,8 +79,12 @@ class BinanceClient:
                 
                 return candles
             else:
-                print("❌ No 4H candles found in Supabase")
-                return []
+                print("❌ No 4H candles found in Supabase, trying Coinbase...")
+                return await self.get_coinbase_candles('4h', limit)
+                
+        except Exception as e:
+            print(f"❌ Supabase 4H fetch error: {e}, trying Coinbase...")
+            return await self.get_coinbase_candles('4h', limit)
                 
         except Exception as e:
             print(f"❌ Supabase 4H fetch error: {e}")
