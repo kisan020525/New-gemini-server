@@ -1,6 +1,7 @@
 import requests
 import asyncio
 import aiohttp
+import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from config import config
@@ -10,9 +11,9 @@ class BinanceClient:
     """Enhanced client for multi-source crypto data with Supabase 4H storage"""
     
     def __init__(self):
-        # Supabase for 4H candles storage (use hardcoded keys for this specific database)
-        self.supabase_url = "https://smylsjwodvlvqybemshk.supabase.co"
-        self.supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNteWxzandvZHZsdnF5YmVtc2hrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNjk5MjAsImV4cCI6MjA3ODk0NTkyMH0.iKJ0NbFeGgGzVKQIBTntfx9TNznej3ffrL5-i1TUbbE"
+        # Supabase for 4H candles storage (use Railway environment variables)
+        self.supabase_url = os.getenv('supabase_4h-candle-url', "https://smylsjwodvlvqybemshk.supabase.co")
+        self.supabase_key = os.getenv('supabase_4h-candle-key', "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNteWxzandvZHZsdnF5YmVtc2hrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNjk5MjAsImV4cCI6MjA3ODk0NTkyMH0.iKJ0NbFeGgGzVKQIBTntfx9TNznej3ffrL5-i1TUbbE")
         
         # Initialize Supabase client
         try:
