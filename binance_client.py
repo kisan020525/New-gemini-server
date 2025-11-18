@@ -9,7 +9,14 @@ class BinanceClient:
     """Binance API client for fetching multi-timeframe candle data"""
     
     def __init__(self):
-        self.base_url = "https://api.binance.com/api/v3"
+        # Try multiple Binance endpoints to avoid region blocking
+        self.endpoints = [
+            "https://api.binance.com/api/v3",
+            "https://api1.binance.com/api/v3", 
+            "https://api2.binance.com/api/v3",
+            "https://api3.binance.com/api/v3"
+        ]
+        self.current_endpoint = 0
         self.session = None
     
     async def __aenter__(self):
@@ -21,32 +28,49 @@ class BinanceClient:
             await self.session.close()
     
     async def get_klines(self, symbol: str, interval: str, limit: int) -> List[Dict]:
-        """Fetch klines from Binance API"""
-        url = f"{self.base_url}/klines"
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'limit': limit
-        }
+        """Fetch klines from Binance API with endpoint rotation"""
         
-        try:
-            if self.session:
-                async with self.session.get(url, params=params, timeout=config.API_TIMEOUT) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self.format_candles(data)
-                    else:
-                        raise Exception(f"Binance API error: {response.status}")
-            else:
-                # Fallback to requests for sync calls
-                response = requests.get(url, params=params, timeout=config.API_TIMEOUT)
-                if response.status_code == 200:
-                    return self.format_candles(response.json())
+        for attempt in range(len(self.endpoints)):
+            base_url = self.endpoints[self.current_endpoint]
+            url = f"{base_url}/klines"
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': limit
+            }
+            
+            try:
+                if self.session:
+                    async with self.session.get(url, params=params, timeout=config.API_TIMEOUT) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return self.format_candles(data)
+                        elif response.status == 451:
+                            print(f"Region blocked on {base_url}, trying next endpoint...")
+                            self.current_endpoint = (self.current_endpoint + 1) % len(self.endpoints)
+                            continue
+                        else:
+                            raise Exception(f"Binance API error: {response.status}")
                 else:
-                    raise Exception(f"Binance API error: {response.status_code}")
-        except Exception as e:
-            print(f"Error fetching {interval} candles: {e}")
-            return []
+                    # Fallback to requests for sync calls
+                    response = requests.get(url, params=params, timeout=config.API_TIMEOUT)
+                    if response.status_code == 200:
+                        return self.format_candles(response.json())
+                    elif response.status_code == 451:
+                        print(f"Region blocked on {base_url}, trying next endpoint...")
+                        self.current_endpoint = (self.current_endpoint + 1) % len(self.endpoints)
+                        continue
+                    else:
+                        raise Exception(f"Binance API error: {response.status_code}")
+            except Exception as e:
+                print(f"Error with {base_url}: {e}")
+                self.current_endpoint = (self.current_endpoint + 1) % len(self.endpoints)
+                if attempt == len(self.endpoints) - 1:  # Last attempt
+                    print(f"All Binance endpoints failed for {interval} candles")
+                    return []
+                continue
+        
+        return []
     
     def format_candles(self, raw_data: List) -> List[Dict]:
         """Format raw Binance candle data"""
@@ -64,22 +88,35 @@ class BinanceClient:
         return candles
     
     async def get_current_price(self, symbol: str = 'BTCUSDT') -> float:
-        """Get current Bitcoin price"""
-        url = f"{self.base_url}/ticker/price"
-        params = {'symbol': symbol}
+        """Get current Bitcoin price with endpoint rotation"""
         
-        try:
-            if self.session:
-                async with self.session.get(url, params=params, timeout=10) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return float(data['price'])
-            else:
-                response = requests.get(url, params=params, timeout=10)
-                if response.status_code == 200:
-                    return float(response.json()['price'])
-        except Exception as e:
-            print(f"Error fetching current price: {e}")
+        for attempt in range(len(self.endpoints)):
+            base_url = self.endpoints[self.current_endpoint]
+            url = f"{base_url}/ticker/price"
+            params = {'symbol': symbol}
+            
+            try:
+                if self.session:
+                    async with self.session.get(url, params=params, timeout=10) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return float(data['price'])
+                        elif response.status == 451:
+                            self.current_endpoint = (self.current_endpoint + 1) % len(self.endpoints)
+                            continue
+                else:
+                    response = requests.get(url, params=params, timeout=10)
+                    if response.status_code == 200:
+                        return float(response.json()['price'])
+                    elif response.status_code == 451:
+                        self.current_endpoint = (self.current_endpoint + 1) % len(self.endpoints)
+                        continue
+            except Exception as e:
+                print(f"Error fetching price from {base_url}: {e}")
+                self.current_endpoint = (self.current_endpoint + 1) % len(self.endpoints)
+                continue
+        
+        print("All Binance endpoints failed for current price")
         return 0.0
 
 class MarketDataFetcher:
