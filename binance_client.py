@@ -87,19 +87,19 @@ class BinanceClient:
         candles.sort(key=lambda x: x['timestamp'])
         return candles
     async def get_klines(self, symbol: str, interval: str, limit: int) -> List[Dict]:
-        """Fetch klines from alternative sources (Coinbase, etc.)"""
+        """Fetch klines from real sources only (Coinbase)"""
         
-        # Try Coinbase first (most reliable)
+        # Try Coinbase (real data only)
         print(f"Fetching {interval} candles from Coinbase...")
         candles = await self.get_coinbase_candles(interval, limit)
         
         if candles:
-            print(f"✅ Got {len(candles)} {interval} candles from Coinbase")
+            print(f"✅ Got {len(candles)} real {interval} candles from Coinbase")
             return candles
         
-        # If Coinbase fails, generate synthetic data as fallback
-        print(f"⚠️ Coinbase failed, generating synthetic {interval} candles...")
-        return self.generate_synthetic_candles(interval, limit)
+        # No synthetic data - return empty if no real data available
+        print(f"❌ No real {interval} data available - system will wait")
+        return []
     
     def generate_synthetic_candles(self, interval: str, limit: int) -> List[Dict]:
         """Generate synthetic Bitcoin candles for testing"""
@@ -164,7 +164,7 @@ class BinanceClient:
         return candles
     
     async def get_current_price(self, symbol: str = 'BTCUSDT') -> float:
-        """Get current Bitcoin price from alternative sources"""
+        """Get current Bitcoin price from real sources only"""
         
         # Try Coinbase first
         try:
@@ -204,10 +204,9 @@ class BinanceClient:
         except Exception as e:
             print(f"CoinGecko price error: {e}")
         
-        # Fallback to synthetic price
-        synthetic_price = 94000 + (hash(str(datetime.now().minute)) % 4000 - 2000)
-        print(f"⚠️ Using synthetic BTC price: ${synthetic_price:.2f}")
-        return float(synthetic_price)
+        # No synthetic data - return 0 if no real price available
+        print(f"❌ No real Bitcoin price available - system will wait")
+        return 0.0
 
 class MarketDataFetcher:
     """High-level market data fetcher for Strategic Pro and Flash"""
