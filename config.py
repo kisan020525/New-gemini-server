@@ -75,10 +75,10 @@ class Config:
     DEFAULT_TRADE_AMOUNT = 100
     MAX_POSITION_SIZE = 1000
     
-    # Data Configuration
-    REQUIRED_4H_CANDLES = 100
-    REQUIRED_1H_CANDLES = 168
-    REQUIRED_15M_CANDLES = 96
+    # Data Configuration (Reduced for prompt optimization)
+    REQUIRED_4H_CANDLES = 50   # Reduced from 100
+    REQUIRED_1H_CANDLES = 100  # Reduced from 168
+    REQUIRED_15M_CANDLES = 50  # Reduced from 96
     FLASH_1H_CANDLES = 24
     FLASH_15M_CANDLES = 48
     FLASH_1M_CANDLES = 100
