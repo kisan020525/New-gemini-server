@@ -27,9 +27,10 @@ class StrategicProAgent:
     def create_strategic_prompt(self, market_data_dict: Dict, current_price: float) -> str:
         """Create the strategic analysis prompt"""
         
-        formatted_4h = market_data.format_candles_for_prompt(market_data_dict['4h'])
-        formatted_1h = market_data.format_candles_for_prompt(market_data_dict['1h'])
-        formatted_15m = market_data.format_candles_for_prompt(market_data_dict['15m'])
+        # Limit candle data to prevent prompt overflow
+        formatted_4h = market_data.format_candles_for_prompt(market_data_dict['4h'], limit=50)  # Reduced from 100
+        formatted_1h = market_data.format_candles_for_prompt(market_data_dict['1h'], limit=100)  # Reduced from 168
+        formatted_15m = market_data.format_candles_for_prompt(market_data_dict['15m'], limit=50)  # Reduced from 96
         
         prompt = f"""
 You are Gemini 2.5 PRO, a master market strategist specializing in Bitcoin. Your role is to provide a clear, strategic directive for the next 1-4 hours to your tactical AI, Gemini Flash.
@@ -38,13 +39,13 @@ Your analysis MUST be based on the provided 4H, 1H, and 15m data to identify hig
 
 === MARKET DATA ===
 
-1. 4H CANDLES (Last 100 - Primary Trend & Structure):
+1. 4H CANDLES (Last 50 - Primary Trend & Structure):
 {formatted_4h}
 
-2. 1H CANDLES (Last 168 - Momentum & Secondary Structure):
+2. 1H CANDLES (Last 100 - Momentum & Secondary Structure):
 {formatted_1h}
 
-3. 15m CANDLES (Last 96 - Recent Price Action):
+3. 15m CANDLES (Last 50 - Recent Price Action):
 {formatted_15m}
 
 Current Bitcoin Price: ${current_price:.2f}
@@ -65,19 +66,19 @@ Analyze the multi-timeframe data and produce a STRATEGIC DIRECTIVE.
 Respond ONLY with a valid JSON object. Do not include any text before or after the JSON.
 
 {{
-    "bias": "LONG_BIAS" | "SHORT_BIAS" | "NEUTRAL",
+    "bias": "LONG_BIAS",
     "reasoning": "Detailed strategic analysis of the 4H/1H structure, key levels, and why this bias was chosen. Explain the big picture.",
-    "trend_4h": "UPTREND" | "DOWNTREND" | "RANGE",
-    "confidence": "An integer from 1-10, where 10 is maximum confidence. Only set 8+ for clear trends.",
+    "trend_4h": "UPTREND",
+    "confidence": 8,
     "entry_zones": [
-        {{"min": 94000.0, "max": 94500.0, "priority": "PRIMARY"}},
-        {{"min": 92000.0, "max": 92500.0, "priority": "BACKUP"}}
+        {{"min": 91000.0, "max": 91500.0, "priority": "PRIMARY"}},
+        {{"min": 90500.0, "max": 91000.0, "priority": "BACKUP"}}
     ],
-    "invalidation_level": 93500.0,
+    "invalidation_level": 90000.0,
     "targets": [
-        {{"price": 95500.0, "level": "TP1"}},
-        {{"price": 96500.0, "level": "TP2"}},
-        {{"price": 98000.0, "level": "TP3"}}
+        {{"price": 92000.0, "level": "TP1"}},
+        {{"price": 92500.0, "level": "TP2"}},
+        {{"price": 93000.0, "level": "TP3"}}
     ],
     "flash_instructions": {{
         "message": "Wait for price to enter a designated entry zone. Look for bullish confirmation patterns on the 15m or 1m timeframe before executing. Volume must confirm the move.",
@@ -142,8 +143,18 @@ Respond ONLY with a valid JSON object. Do not include any text before or after t
                 response = self.model.generate_content(prompt)
                 
                 if response and response.text:
+                    response_text = response.text.strip()
+                    print(f"📝 Strategic Pro: Raw response length: {len(response_text)} chars")
+                    
+                    # Debug: Show first 200 chars of response
+                    if len(response_text) > 0:
+                        print(f"📝 Response preview: {response_text[:200]}...")
+                    else:
+                        print("📝 Empty response from Gemini Pro")
+                        continue
+                    
                     # Parse JSON response
-                    directive = json.loads(response.text.strip())
+                    directive = json.loads(response_text)
                     
                     # Validate directive
                     if self.validate_directive(directive):
@@ -155,6 +166,9 @@ Respond ONLY with a valid JSON object. Do not include any text before or after t
                     else:
                         print("❌ Strategic Pro: Invalid directive format")
                         continue
+                else:
+                    print("❌ Strategic Pro: No response from Gemini Pro")
+                    continue
                 
             except json.JSONDecodeError as e:
                 print(f"❌ Strategic Pro: JSON parse error: {e}")
