@@ -1,33 +1,22 @@
 import requests
 import asyncio
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from config import config
+from supabase import create_client
 
 class BinanceClient:
-    """Binance API client for fetching multi-timeframe candle data"""
+    """Enhanced client for multi-source crypto data with Supabase 4H storage"""
     
     def __init__(self):
-        # Alternative crypto data sources (no region blocking)
-        self.data_sources = [
-            {
-                'name': 'coinbase',
-                'klines_url': 'https://api.exchange.coinbase.com/products/BTC-USD/candles',
-                'price_url': 'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
-            },
-            {
-                'name': 'kraken',
-                'klines_url': 'https://api.kraken.com/0/public/OHLC',
-                'price_url': 'https://api.kraken.com/0/public/Ticker'
-            },
-            {
-                'name': 'coingecko',
-                'price_url': 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd'
-            }
-        ]
-        self.current_source = 0
+        # Supabase for 4H candles storage
+        self.supabase_url = "https://smylsjwodvlvqybemshk.supabase.co"
+        self.supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNteWxzandvZHZsdnF5YmVtc2hrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNjk5MjAsImV4cCI6MjA3ODk0NTkyMH0.iKJ0NbFeGgGzVKQIBTntfx9TNznej3ffrL5-i1TUbbE"
+        self.supabase = create_client(self.supabase_url, self.supabase_key)
+        
         self.session = None
+        self.last_4h_update = None
     
     async def __aenter__(self):
         self.session = aiohttp.ClientSession()
@@ -36,6 +25,124 @@ class BinanceClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.session:
             await self.session.close()
+    
+    async def get_klines(self, symbol: str, interval: str, limit: int) -> List[Dict]:
+        """Fetch klines - 4H from Supabase, others from Coinbase"""
+        
+        if interval == '4h':
+            # Get 4H candles from Supabase
+            return await self.get_4h_from_supabase(limit)
+        else:
+            # Get other timeframes from Coinbase
+            return await self.get_coinbase_candles(interval, limit)
+    
+    async def get_4h_from_supabase(self, limit: int) -> List[Dict]:
+        """Fetch 4H candles from Supabase storage"""
+        try:
+            print(f"📊 Fetching {limit} 4H candles from Supabase...")
+            
+            result = self.supabase.table('candles').select('*').eq(
+                'timeframe', '4h'
+            ).eq(
+                'symbol', 'BTCUSD'
+            ).order('timestamp', desc=True).limit(limit).execute()
+            
+            if result.data:
+                # Convert to our format and reverse (oldest first)
+                candles = []
+                for row in reversed(result.data):
+                    candle = {
+                        'timestamp': row['timestamp'],
+                        'open': float(row['open']),
+                        'high': float(row['high']),
+                        'low': float(row['low']),
+                        'close': float(row['close']),
+                        'volume': float(row['volume'])
+                    }
+                    candles.append(candle)
+                
+                print(f"✅ Got {len(candles)} 4H candles from Supabase")
+                
+                # Check if we need to update with new 4H candle
+                await self.check_and_update_4h_candles()
+                
+                return candles
+            else:
+                print("❌ No 4H candles found in Supabase")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Supabase 4H fetch error: {e}")
+            return []
+    
+    async def check_and_update_4h_candles(self):
+        """Check if we need to add new 4H candle every 4 hours"""
+        try:
+            current_time = datetime.now()
+            
+            # Check if 4 hours have passed since last update
+            if self.last_4h_update:
+                time_diff = current_time - self.last_4h_update
+                if time_diff.total_seconds() < 14400:  # 4 hours = 14400 seconds
+                    return
+            
+            # Get latest 4H candle from Supabase
+            result = self.supabase.table('candles').select('timestamp').eq(
+                'timeframe', '4h'
+            ).order('timestamp', desc=True).limit(1).execute()
+            
+            if result.data:
+                latest_timestamp = datetime.fromisoformat(result.data[0]['timestamp'].replace('Z', '+00:00'))
+                
+                # Check if we need a new 4H candle (every 4 hours: 00:00, 04:00, 08:00, etc.)
+                current_4h_boundary = current_time.replace(
+                    hour=(current_time.hour // 4) * 4, 
+                    minute=0, 
+                    second=0, 
+                    microsecond=0
+                )
+                
+                if latest_timestamp < current_4h_boundary:
+                    print("🔄 Time for new 4H candle update...")
+                    await self.add_new_4h_candle()
+                    self.last_4h_update = current_time
+            
+        except Exception as e:
+            print(f"❌ 4H update check error: {e}")
+    
+    async def add_new_4h_candle(self):
+        """Add new 4H candle from Coinbase to Supabase"""
+        try:
+            print("📊 Fetching latest 4H candle from Coinbase...")
+            
+            # Get latest 4H candle from Coinbase
+            candles = await self.get_coinbase_candles('4h', 1)
+            
+            if candles:
+                new_candle = candles[0]
+                
+                # Format for Supabase
+                supabase_candle = {
+                    'timestamp': new_candle['timestamp'],
+                    'symbol': 'BTCUSD',
+                    'timeframe': '4h',
+                    'open': new_candle['open'],
+                    'high': new_candle['high'],
+                    'low': new_candle['low'],
+                    'close': new_candle['close'],
+                    'volume': new_candle['volume']
+                }
+                
+                # Insert into Supabase (upsert to handle duplicates)
+                result = self.supabase.table('candles').upsert(supabase_candle).execute()
+                
+                if result.data:
+                    print(f"✅ Added new 4H candle: ${new_candle['close']:.2f}")
+                else:
+                    print("❌ Failed to add new 4H candle")
+            
+        except Exception as e:
+            print(f"❌ New 4H candle error: {e}")
     
     async def get_coinbase_candles(self, interval: str, limit: int) -> List[Dict]:
         """Fetch candles from Coinbase Pro API"""
@@ -54,18 +161,24 @@ class BinanceClient:
         }
         
         try:
+            print(f"Fetching {interval} candles from Coinbase...")
             if self.session:
                 async with self.session.get(url, params=params, timeout=30) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return self.format_coinbase_candles(data[:limit])
+                        candles = self.format_coinbase_candles(data[:limit])
+                        print(f"✅ Got {len(candles)} {interval} candles from Coinbase")
+                        return candles
             else:
                 response = requests.get(url, params=params, timeout=30)
                 if response.status_code == 200:
-                    return self.format_coinbase_candles(response.json()[:limit])
+                    candles = self.format_coinbase_candles(response.json()[:limit])
+                    print(f"✅ Got {len(candles)} {interval} candles from Coinbase")
+                    return candles
         except Exception as e:
             print(f"Coinbase API error: {e}")
         
+        print(f"❌ No {interval} data available")
         return []
     
     def format_coinbase_candles(self, raw_data: List) -> List[Dict]:
@@ -85,82 +198,6 @@ class BinanceClient:
         
         # Sort by timestamp (oldest first)
         candles.sort(key=lambda x: x['timestamp'])
-        return candles
-    async def get_klines(self, symbol: str, interval: str, limit: int) -> List[Dict]:
-        """Fetch klines from real sources only (Coinbase)"""
-        
-        # Try Coinbase (real data only)
-        print(f"Fetching {interval} candles from Coinbase...")
-        candles = await self.get_coinbase_candles(interval, limit)
-        
-        if candles:
-            print(f"✅ Got {len(candles)} real {interval} candles from Coinbase")
-            return candles
-        
-        # No synthetic data - return empty if no real data available
-        print(f"❌ No real {interval} data available - system will wait")
-        return []
-    
-    def generate_synthetic_candles(self, interval: str, limit: int) -> List[Dict]:
-        """Generate synthetic Bitcoin candles for testing"""
-        import random
-        from datetime import timedelta
-        
-        # Interval to minutes mapping
-        interval_minutes = {
-            '1m': 1,
-            '15m': 15, 
-            '1h': 60,
-            '4h': 240
-        }
-        
-        minutes = interval_minutes.get(interval, 60)
-        candles = []
-        
-        # Start with realistic Bitcoin price
-        base_price = 94000 + random.uniform(-2000, 2000)
-        current_time = datetime.now()
-        
-        for i in range(limit):
-            # Generate realistic price movement
-            price_change = random.uniform(-0.02, 0.02)  # ±2% change
-            new_price = base_price * (1 + price_change)
-            
-            # Generate OHLCV
-            high = new_price * (1 + random.uniform(0, 0.01))
-            low = new_price * (1 - random.uniform(0, 0.01))
-            open_price = base_price
-            close_price = new_price
-            volume = random.uniform(100, 1000)
-            
-            candle = {
-                'timestamp': (current_time - timedelta(minutes=minutes * (limit - i - 1))).isoformat(),
-                'open': round(open_price, 2),
-                'high': round(high, 2),
-                'low': round(low, 2), 
-                'close': round(close_price, 2),
-                'volume': round(volume, 2)
-            }
-            
-            candles.append(candle)
-            base_price = new_price
-        
-        print(f"✅ Generated {len(candles)} synthetic {interval} candles")
-        return candles
-    
-    def format_candles(self, raw_data: List) -> List[Dict]:
-        """Format raw Binance candle data"""
-        candles = []
-        for candle in raw_data:
-            formatted = {
-                'timestamp': datetime.fromtimestamp(candle[0] / 1000).isoformat(),
-                'open': float(candle[1]),
-                'high': float(candle[2]),
-                'low': float(candle[3]),
-                'close': float(candle[4]),
-                'volume': float(candle[5])
-            }
-            candles.append(formatted)
         return candles
     
     async def get_current_price(self, symbol: str = 'BTCUSDT') -> float:
@@ -204,7 +241,7 @@ class BinanceClient:
         except Exception as e:
             print(f"CoinGecko price error: {e}")
         
-        # No synthetic data - return 0 if no real price available
+        # No real price available
         print(f"❌ No real Bitcoin price available - system will wait")
         return 0.0
 
@@ -218,9 +255,9 @@ class MarketDataFetcher:
         """Fetch data for Strategic Pro (every hour)"""
         async with BinanceClient() as client:
             tasks = [
-                client.get_klines('BTCUSDT', '4h', config.REQUIRED_4H_CANDLES),
-                client.get_klines('BTCUSDT', '1h', config.REQUIRED_1H_CANDLES),
-                client.get_klines('BTCUSDT', '15m', config.REQUIRED_15M_CANDLES)
+                client.get_klines('BTCUSDT', '4h', config.REQUIRED_4H_CANDLES),    # From Supabase
+                client.get_klines('BTCUSDT', '1h', config.REQUIRED_1H_CANDLES),    # From Coinbase
+                client.get_klines('BTCUSDT', '15m', config.REQUIRED_15M_CANDLES)   # From Coinbase
             ]
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
