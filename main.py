@@ -27,7 +27,8 @@ class GeminiTradingBot:
             'strategic_analyses': 0,
             'flash_decisions': 0,
             'trades_executed': 0,
-            'errors': 0
+            'errors': 0,
+            'version': '2025-11-18_12:40'  # Force redeploy timestamp
         }
     
     async def start(self):
