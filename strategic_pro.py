@@ -127,6 +127,11 @@ Respond ONLY with a valid JSON object. Do not include any text before or after t
                 print("❌ Strategic Pro: No API keys available")
                 return None
             
+            # Skip keys that are known to be quota exceeded
+            if api_key in getattr(self, 'quota_exceeded_keys', set()):
+                print(f"⏭️ Strategic Pro: Skipping quota exceeded key {api_key[:10]}...")
+                continue
+            
             if not self.initialize_model(api_key):
                 continue
             
@@ -155,10 +160,19 @@ Respond ONLY with a valid JSON object. Do not include any text before or after t
                 print(f"❌ Strategic Pro: JSON parse error: {e}")
                 continue
             except Exception as e:
-                print(f"❌ Strategic Pro: Analysis error with key {api_key[:10]}...: {e}")
-                continue
+                error_str = str(e)
+                if "quota" in error_str.lower() or "429" in error_str:
+                    print(f"⏰ Strategic Pro: Quota exceeded for key {api_key[:10]}..., trying next key")
+                    # Mark this key as quota exceeded
+                    if not hasattr(self, 'quota_exceeded_keys'):
+                        self.quota_exceeded_keys = set()
+                    self.quota_exceeded_keys.add(api_key)
+                    continue
+                else:
+                    print(f"❌ Strategic Pro: Analysis error with key {api_key[:10]}...: {e}")
+                    continue
         
-        print("❌ Strategic Pro: All API keys failed")
+        print("❌ Strategic Pro: All API keys failed or quota exceeded")
         return None
     
     def validate_directive(self, directive: Dict) -> bool:

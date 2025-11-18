@@ -93,7 +93,8 @@ class BinanceClient:
     async def check_and_update_4h_candles(self):
         """Check if we need to add new 4H candle every 4 hours"""
         try:
-            current_time = datetime.now()
+            from datetime import timezone
+            current_time = datetime.now(timezone.utc)
             
             # Check if 4 hours have passed since last update
             if self.last_4h_update:
@@ -107,7 +108,15 @@ class BinanceClient:
             ).order('timestamp', desc=True).limit(1).execute()
             
             if result.data:
-                latest_timestamp = datetime.fromisoformat(result.data[0]['timestamp'].replace('Z', '+00:00'))
+                latest_timestamp_str = result.data[0]['timestamp']
+                # Handle both formats: with and without timezone
+                if latest_timestamp_str.endswith('Z'):
+                    latest_timestamp = datetime.fromisoformat(latest_timestamp_str.replace('Z', '+00:00'))
+                elif '+' in latest_timestamp_str or latest_timestamp_str.endswith('+00:00'):
+                    latest_timestamp = datetime.fromisoformat(latest_timestamp_str)
+                else:
+                    # Assume UTC if no timezone info
+                    latest_timestamp = datetime.fromisoformat(latest_timestamp_str).replace(tzinfo=timezone.utc)
                 
                 # Check if we need a new 4H candle (every 4 hours: 00:00, 04:00, 08:00, etc.)
                 current_4h_boundary = current_time.replace(
@@ -124,6 +133,7 @@ class BinanceClient:
             
         except Exception as e:
             print(f"❌ 4H update check error: {e}")
+            # Don't fail the whole system for update check errors
     
     async def add_new_4h_candle(self):
         """Add new 4H candle from Coinbase to Supabase"""
