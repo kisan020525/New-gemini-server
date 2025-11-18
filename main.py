@@ -1,3 +1,8 @@
+"""
+Gemini Trading Bot - Strategic Pro + Flash System
+Updated: 2025-11-18 12:47 - Force Railway Deploy
+"""
+
 import asyncio
 import signal
 import sys
